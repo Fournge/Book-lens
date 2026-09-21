@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Camera,
   UploadCloud,
@@ -12,8 +12,10 @@ import {
   FlipHorizontal,
   ChevronRight,
   BookMarked,
+  Smartphone,
+  CheckCircle2,
 } from 'lucide-react';
-import { SAMPLE_BOOKS, SampleBookItem } from '../data/sampleBooks';
+import { SAMPLE_BOOKS } from '../data/sampleBooks';
 import { BookAnalysis } from '../types';
 
 interface ScanStudioProps {
@@ -37,50 +39,74 @@ export const ScanStudio: React.FC<ScanStudioProps> = ({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [dragOver, setDragOver] = useState<boolean>(false);
+  const [isStartingCamera, setIsStartingCamera] = useState<boolean>(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const nativeCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const fileUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   // Stop camera helper
-  const stopCamera = () => {
+  const stopCamera = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     setIsCameraActive(false);
-  };
+    setIsStartingCamera(false);
+  }, []);
 
+  // Clean up stream on unmount
   useEffect(() => {
     return () => {
       stopCamera();
     };
-  }, []);
+  }, [stopCamera]);
 
-  // Start camera
+  // Attach stream to video element whenever camera becomes active and video element mounts
+  useEffect(() => {
+    if (isCameraActive && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch((err) => {
+        console.warn('Video play interrupted or delayed:', err);
+      });
+    }
+  }, [isCameraActive]);
+
+  // Start live webcam / video stream
   const startCamera = async (facing: 'environment' | 'user' = facingMode) => {
     setCameraError(null);
+    setIsStartingCamera(true);
     stopCamera();
+
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Camera streaming is not supported by your browser. Please use the Take Photo or Upload button.');
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: facing },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: 1920, min: 640 },
+          height: { ideal: 1080, min: 480 },
         },
         audio: false,
       });
+
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
-      setIsCameraActive(true);
       setFacingMode(facing);
+      setIsCameraActive(true);
+      setIsStartingCamera(false);
     } catch (err: any) {
       console.error('Camera access error:', err);
-      setCameraError('Could not access camera. Please allow camera permissions or upload an image.');
       setIsCameraActive(false);
+      setIsStartingCamera(false);
+      setCameraError(
+        'Could not access live camera viewfinder. Please allow camera permissions in your browser or tap "Take Photo (Camera)" to snap directly with your phone.'
+      );
     }
   };
 
@@ -91,7 +117,7 @@ export const ScanStudio: React.FC<ScanStudioProps> = ({
   };
 
   // Capture frame from live video
-  const captureFrame = () => {
+  const captureFrame = (autoAnalyze: boolean = true) => {
     if (!videoRef.current) return;
     const video = videoRef.current;
     const maxDimension = 900;
@@ -113,13 +139,20 @@ export const ScanStudio: React.FC<ScanStudioProps> = ({
     if (!ctx) return;
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
     setSelectedImage(dataUrl);
     stopCamera();
+
+    if (autoAnalyze) {
+      onAnalyze({
+        imageBase64: dataUrl,
+        mediaType: 'image/jpeg',
+      });
+    }
   };
 
-  // Process file upload with client-side downscaling
-  const processImageFile = (file: File) => {
+  // Process image file (from camera snap or file upload) with client-side downscaling
+  const processImageFile = (file: File, autoAnalyze: boolean = false) => {
     if (!file.type.startsWith('image/')) {
       alert('Please select an image file (JPEG, PNG, WebP).');
       return;
@@ -146,9 +179,16 @@ export const ScanStudio: React.FC<ScanStudioProps> = ({
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(img, 0, 0, width, height);
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.78);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.8);
           setSelectedImage(compressedDataUrl);
           stopCamera();
+
+          if (autoAnalyze) {
+            onAnalyze({
+              imageBase64: compressedDataUrl,
+              mediaType: 'image/jpeg',
+            });
+          }
         }
       };
       img.src = e.target?.result as string;
@@ -179,6 +219,33 @@ export const ScanStudio: React.FC<ScanStudioProps> = ({
 
   return (
     <div className="w-full space-y-8">
+      {/* Hidden File Inputs */}
+      {/* 1. Direct native camera capture on mobile phones */}
+      <input
+        type="file"
+        ref={nativeCameraInputRef}
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files?.[0]) {
+            processImageFile(e.target.files[0], false);
+          }
+        }}
+      />
+      {/* 2. Gallery / file picker */}
+      <input
+        type="file"
+        ref={fileUploadInputRef}
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files?.[0]) {
+            processImageFile(e.target.files[0], false);
+          }
+        }}
+      />
+
       {/* Hero Welcome banner */}
       <div className="text-center max-w-2xl mx-auto space-y-2.5">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100/80 border border-amber-300/60 text-amber-900 text-xs font-semibold tracking-wide shadow-xs">
@@ -202,7 +269,7 @@ export const ScanStudio: React.FC<ScanStudioProps> = ({
               setActiveMode('scan');
               setSearchQuery('');
             }}
-            className={`flex-1 py-3 px-4 text-sm font-semibold flex items-center justify-center gap-2 border-b-2 transition-all ${
+            className={`flex-1 py-3 px-4 text-sm font-semibold flex items-center justify-center gap-2 border-b-2 transition-all cursor-pointer ${
               activeMode === 'scan'
                 ? 'border-[#1d2430] text-[#1d2430] bg-white'
                 : 'border-transparent text-[#6b7787] hover:text-[#1d2430]'
@@ -210,7 +277,7 @@ export const ScanStudio: React.FC<ScanStudioProps> = ({
             id="tab-camera-mode"
           >
             <Camera className="w-4 h-4 text-amber-600" />
-            <span>Camera &amp; Upload</span>
+            <span>Camera &amp; Photo Scan</span>
           </button>
           <button
             onClick={() => {
@@ -218,7 +285,7 @@ export const ScanStudio: React.FC<ScanStudioProps> = ({
               stopCamera();
               setSelectedImage(null);
             }}
-            className={`flex-1 py-3 px-4 text-sm font-semibold flex items-center justify-center gap-2 border-b-2 transition-all ${
+            className={`flex-1 py-3 px-4 text-sm font-semibold flex items-center justify-center gap-2 border-b-2 transition-all cursor-pointer ${
               activeMode === 'search'
                 ? 'border-[#1d2430] text-[#1d2430] bg-white'
                 : 'border-transparent text-[#6b7787] hover:text-[#1d2430]'
@@ -236,71 +303,78 @@ export const ScanStudio: React.FC<ScanStudioProps> = ({
             <div className="space-y-5">
               {/* Live Camera Viewfinder */}
               {isCameraActive ? (
-                <div className="relative rounded-xl overflow-hidden bg-black aspect-4/3 flex items-center justify-center shadow-inner max-w-full">
+                <div className="relative rounded-2xl overflow-hidden bg-black aspect-4/3 flex items-center justify-center shadow-md max-w-full">
                   <video
                     ref={videoRef}
                     autoPlay
                     playsInline
                     muted
+                    onLoadedMetadata={() => {
+                      if (videoRef.current) {
+                        videoRef.current.play().catch(console.warn);
+                      }
+                    }}
                     className="w-full h-full object-cover"
                   />
                   {/* Viewfinder Target Overlay */}
                   <div className="absolute inset-0 pointer-events-none flex items-center justify-center p-4 sm:p-8">
-                    <div className="w-48 sm:w-64 max-w-[80%] max-h-[80%] aspect-3/4 border-2 border-white/80 rounded-xl relative shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]">
-                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-black/75 backdrop-blur-xs text-white text-[10px] sm:text-[11px] font-medium px-2 py-0.5 rounded-full border border-white/20 whitespace-nowrap">
-                        Frame Cover or Spine
+                    <div className="w-48 sm:w-64 max-w-[80%] max-h-[80%] aspect-3/4 border-2 border-amber-400/90 rounded-2xl relative shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]">
+                      <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-[#1d2430] text-amber-300 text-[11px] font-semibold px-3 py-0.5 rounded-full border border-amber-400/40 shadow-xs whitespace-nowrap">
+                        Center Book Cover Here
                       </div>
                       {/* Corner Accents */}
-                      <div className="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-amber-400" />
-                      <div className="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-amber-400" />
-                      <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-amber-400" />
-                      <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-amber-400" />
+                      <div className="absolute -top-1.5 -left-1.5 w-5 h-5 border-t-3 border-l-3 border-amber-400 rounded-tl-lg" />
+                      <div className="absolute -top-1.5 -right-1.5 w-5 h-5 border-t-3 border-r-3 border-amber-400 rounded-tr-lg" />
+                      <div className="absolute -bottom-1.5 -left-1.5 w-5 h-5 border-b-3 border-l-3 border-amber-400 rounded-bl-lg" />
+                      <div className="absolute -bottom-1.5 -right-1.5 w-5 h-5 border-b-3 border-r-3 border-amber-400 rounded-br-lg" />
                     </div>
                   </div>
 
                   {/* Controls on Top */}
-                  <div className="absolute top-3 right-3 flex items-center gap-2">
+                  <div className="absolute top-3 right-3 flex items-center gap-2 z-10">
                     <button
                       onClick={toggleFacingMode}
-                      className="p-2 rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors"
-                      title="Switch Camera"
+                      className="p-2.5 rounded-full bg-black/65 text-white hover:bg-black/90 transition-colors cursor-pointer backdrop-blur-xs"
+                      title="Flip Camera (Front/Back)"
                     >
                       <FlipHorizontal className="w-4 h-4" />
                     </button>
                     <button
                       onClick={stopCamera}
-                      className="p-2 rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors"
+                      className="p-2.5 rounded-full bg-black/65 text-white hover:bg-black/90 transition-colors cursor-pointer backdrop-blur-xs"
                       title="Close Camera"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
 
-                  {/* Shutter Button */}
-                  <div className="absolute bottom-4 inset-x-0 flex justify-center">
+                  {/* Bottom Controls Bar */}
+                  <div className="absolute bottom-4 inset-x-0 flex flex-col items-center gap-2 z-10">
                     <button
-                      onClick={captureFrame}
-                      className="group flex items-center justify-center w-16 h-16 rounded-full bg-white/90 p-1 shadow-lg hover:scale-105 active:scale-95 transition-all"
+                      onClick={() => captureFrame(false)}
+                      className="group flex items-center gap-2.5 px-6 py-3 rounded-full bg-amber-500 hover:bg-amber-600 text-[#1d2430] font-bold text-sm shadow-xl active:scale-95 transition-all cursor-pointer border-2 border-white"
                       id="btn-shutter-snap"
                     >
-                      <div className="w-full h-full rounded-full bg-amber-500 border-2 border-white group-hover:bg-amber-600 transition-colors flex items-center justify-center">
-                        <Camera className="w-6 h-6 text-white" />
-                      </div>
+                      <Camera className="w-5 h-5 text-[#1d2430]" />
+                      <span>Snap &amp; Scan Book</span>
                     </button>
+                    <span className="text-[11px] text-white/90 drop-shadow-md font-medium">
+                      Hold still and tap to capture
+                    </span>
                   </div>
                 </div>
               ) : selectedImage ? (
                 /* Selected / Snapped Image Preview */
                 <div className="space-y-4">
-                  <div className="relative rounded-xl overflow-hidden bg-[#f3f0e8] border border-[#e3dfd6] p-2 flex items-center justify-center min-h-[260px] max-h-[380px]">
+                  <div className="relative rounded-2xl overflow-hidden bg-[#f3f0e8] border border-[#e3dfd6] p-3 flex items-center justify-center min-h-[260px] max-h-[380px]">
                     <img
                       src={selectedImage}
                       alt="Selected Book Cover"
-                      className="max-h-[340px] w-auto object-contain rounded-lg shadow-md"
+                      className="max-h-[340px] w-auto object-contain rounded-xl shadow-md"
                     />
                     <button
                       onClick={() => setSelectedImage(null)}
-                      className="absolute top-4 right-4 p-1.5 rounded-full bg-[#1d2430]/80 text-white hover:bg-[#1d2430] transition-colors"
+                      className="absolute top-4 right-4 p-2 rounded-full bg-[#1d2430]/85 text-white hover:bg-[#1d2430] transition-colors cursor-pointer shadow-md"
                       title="Remove image"
                     >
                       <X className="w-4 h-4" />
@@ -311,7 +385,7 @@ export const ScanStudio: React.FC<ScanStudioProps> = ({
                     <button
                       onClick={handleScanImage}
                       disabled={isLoading}
-                      className="flex-1 py-3.5 px-6 rounded-xl bg-[#1d2430] text-white font-semibold flex items-center justify-center gap-2 hover:bg-[#2c3647] active:scale-[0.99] transition-all shadow-sm disabled:opacity-50"
+                      className="flex-1 py-3.5 px-6 rounded-xl bg-[#1d2430] text-white font-semibold flex items-center justify-center gap-2 hover:bg-[#2c3647] active:scale-[0.99] transition-all shadow-sm disabled:opacity-50 cursor-pointer text-sm sm:text-base"
                       id="btn-analyze-photo"
                     >
                       {isLoading ? (
@@ -328,11 +402,14 @@ export const ScanStudio: React.FC<ScanStudioProps> = ({
                     </button>
 
                     <button
-                      onClick={() => setSelectedImage(null)}
+                      onClick={() => {
+                        setSelectedImage(null);
+                        startCamera();
+                      }}
                       disabled={isLoading}
-                      className="py-3.5 px-4 rounded-xl border border-[#d8d3c7] text-[#4b5563] font-medium hover:bg-[#f6f4ee] transition-colors text-sm"
+                      className="py-3.5 px-4 rounded-xl border border-[#d8d3c7] text-[#4b5563] font-medium hover:bg-[#f6f4ee] transition-colors text-sm cursor-pointer"
                     >
-                      Retake / Change
+                      Retake Photo
                     </button>
                   </div>
                 </div>
@@ -342,31 +419,60 @@ export const ScanStudio: React.FC<ScanStudioProps> = ({
                   {cameraError && (
                     <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
                       <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                      <span>{cameraError}</span>
+                      <div className="flex-1">
+                        <span className="font-semibold">Notice: </span>
+                        <span>{cameraError}</span>
+                      </div>
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {/* Live Camera Button */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* Option 1: Native Phone Camera Snap (Instant on Mobile) */}
                     <button
-                      onClick={() => startCamera()}
-                      className="group p-5 rounded-xl border-2 border-dashed border-[#dcd7cb] hover:border-[#1d2430] bg-[#faf8f4] hover:bg-white flex flex-col items-center justify-center text-center gap-2.5 transition-all cursor-pointer"
-                      id="btn-open-camera"
+                      type="button"
+                      onClick={() => nativeCameraInputRef.current?.click()}
+                      className="group p-5 rounded-xl border-2 border-dashed border-amber-400/80 bg-amber-50/40 hover:bg-amber-50 hover:border-amber-600 flex flex-col items-center justify-center text-center gap-2.5 transition-all cursor-pointer shadow-2xs"
+                      id="btn-phone-camera-snap"
                     >
-                      <div className="w-12 h-12 rounded-xl bg-amber-500/10 text-amber-700 flex items-center justify-center group-hover:scale-110 transition-transform">
+                      <div className="w-12 h-12 rounded-xl bg-amber-500 text-white flex items-center justify-center group-hover:scale-110 transition-transform shadow-xs">
                         <Camera className="w-6 h-6" />
                       </div>
                       <div>
-                        <div className="font-semibold text-sm text-[#1d2430]">
-                          Open Camera
+                        <div className="font-bold text-sm text-[#1d2430]">
+                          Take Photo (Camera)
                         </div>
-                        <div className="text-xs text-[#6b7787] mt-0.5">
-                          Snap a physical book cover or spine
+                        <div className="text-xs text-amber-800/80 mt-0.5">
+                          Snap directly with device camera
                         </div>
                       </div>
                     </button>
 
-                    {/* Upload / Drag and Drop Area */}
+                    {/* Option 2: Live In-Browser Viewfinder */}
+                    <button
+                      type="button"
+                      onClick={() => startCamera()}
+                      disabled={isStartingCamera}
+                      className="group p-5 rounded-xl border-2 border-dashed border-[#dcd7cb] hover:border-[#1d2430] bg-[#faf8f4] hover:bg-white flex flex-col items-center justify-center text-center gap-2.5 transition-all cursor-pointer"
+                      id="btn-open-camera"
+                    >
+                      <div className="w-12 h-12 rounded-xl bg-[#1d2430]/10 text-[#1d2430] flex items-center justify-center group-hover:scale-110 transition-transform">
+                        {isStartingCamera ? (
+                          <RefreshCw className="w-6 h-6 animate-spin text-amber-600" />
+                        ) : (
+                          <Smartphone className="w-6 h-6" />
+                        )}
+                      </div>
+                      <div>
+                        <div className="font-semibold text-sm text-[#1d2430]">
+                          Live Viewfinder
+                        </div>
+                        <div className="text-xs text-[#6b7787] mt-0.5">
+                          Real-time on-screen scanner
+                        </div>
+                      </div>
+                    </button>
+
+                    {/* Option 3: Upload from Gallery / Files */}
                     <div
                       onDragOver={(e) => {
                         e.preventDefault();
@@ -380,34 +486,23 @@ export const ScanStudio: React.FC<ScanStudioProps> = ({
                           processImageFile(e.dataTransfer.files[0]);
                         }
                       }}
-                      onClick={() => fileInputRef.current?.click()}
+                      onClick={() => fileUploadInputRef.current?.click()}
                       className={`group p-5 rounded-xl border-2 border-dashed transition-all flex flex-col items-center justify-center text-center gap-2.5 cursor-pointer ${
                         dragOver
-                          ? 'border-amber-600 bg-amber-50/60'
+                          ? 'border-blue-600 bg-blue-50/60'
                           : 'border-[#dcd7cb] hover:border-[#1d2430] bg-[#faf8f4] hover:bg-white'
                       }`}
                       id="dropzone-upload"
                     >
-                      <input
-                        type="file"
-                        ref={fileInputRef}
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => {
-                          if (e.target.files?.[0]) {
-                            processImageFile(e.target.files[0]);
-                          }
-                        }}
-                      />
                       <div className="w-12 h-12 rounded-xl bg-blue-500/10 text-blue-700 flex items-center justify-center group-hover:scale-110 transition-transform">
                         <UploadCloud className="w-6 h-6" />
                       </div>
                       <div>
                         <div className="font-semibold text-sm text-[#1d2430]">
-                          Upload Photo
+                          Upload Image
                         </div>
                         <div className="text-xs text-[#6b7787] mt-0.5">
-                          Drag &amp; drop or browse gallery
+                          From photo library or files
                         </div>
                       </div>
                     </div>
@@ -438,7 +533,7 @@ export const ScanStudio: React.FC<ScanStudioProps> = ({
               <button
                 type="submit"
                 disabled={isLoading || !searchQuery.trim()}
-                className="w-full py-3.5 px-6 rounded-xl bg-[#1d2430] text-white font-semibold flex items-center justify-center gap-2 hover:bg-[#2c3647] active:scale-[0.99] transition-all shadow-sm disabled:opacity-50"
+                className="w-full py-3.5 px-6 rounded-xl bg-[#1d2430] text-white font-semibold flex items-center justify-center gap-2 hover:bg-[#2c3647] active:scale-[0.99] transition-all shadow-sm disabled:opacity-50 cursor-pointer"
                 id="btn-search-submit"
               >
                 {isLoading ? (
@@ -472,7 +567,7 @@ export const ScanStudio: React.FC<ScanStudioProps> = ({
                       key={chip}
                       type="button"
                       onClick={() => handleQuickPrompt(chip)}
-                      className="text-xs bg-[#f4f1ea] hover:bg-[#eae5da] text-[#374151] px-2.5 py-1.5 rounded-lg border border-[#ded9cd] transition-colors"
+                      className="text-xs bg-[#f4f1ea] hover:bg-[#eae5da] text-[#374151] px-2.5 py-1.5 rounded-lg border border-[#ded9cd] transition-colors cursor-pointer"
                     >
                       {chip}
                     </button>
@@ -533,3 +628,4 @@ export const ScanStudio: React.FC<ScanStudioProps> = ({
     </div>
   );
 };
+

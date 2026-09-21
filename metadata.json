@@ -1,7 +1,10 @@
 {
   "name": "BookLens - AI Book Identifier & Reader's Companion",
   "description": "Snap or search any book cover to instantly get AI-powered spoiler-free summaries, reading vibes, takeaways, and smart next-read recommendations.",
-  "requestFramePermissions": ["camera"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
-
