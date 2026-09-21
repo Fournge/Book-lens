@@ -293,43 +293,43 @@ ${book.keyTakeaways?.map((t) => `• ${t}`).join('\n')}
 
       {/* Reading Vibe Metric Bar */}
       {book.readingVibe && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="bg-white rounded-xl border border-[#e5e1d7] p-3.5 shadow-2xs">
-            <div className="flex items-center gap-1.5 text-xs text-[#6b7787] font-medium mb-1">
-              <Flame className="w-3.5 h-3.5 text-orange-500" />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
+          <div className="bg-white rounded-xl border border-[#e5e1d7] p-3 sm:p-3.5 shadow-2xs flex flex-col justify-between">
+            <div className="flex items-center gap-1.5 text-xs text-[#6b7787] font-medium mb-1.5">
+              <Flame className="w-3.5 h-3.5 text-orange-500 shrink-0" />
               <span>Pacing</span>
             </div>
-            <div className="text-xs sm:text-sm font-semibold text-[#1d2430]">
+            <div className="text-xs sm:text-sm font-semibold text-[#1d2430] leading-snug break-words">
               {book.readingVibe.pace}
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-[#e5e1d7] p-3.5 shadow-2xs">
-            <div className="flex items-center gap-1.5 text-xs text-[#6b7787] font-medium mb-1">
-              <Layers className="w-3.5 h-3.5 text-blue-500" />
+          <div className="bg-white rounded-xl border border-[#e5e1d7] p-3 sm:p-3.5 shadow-2xs flex flex-col justify-between">
+            <div className="flex items-center gap-1.5 text-xs text-[#6b7787] font-medium mb-1.5">
+              <Layers className="w-3.5 h-3.5 text-blue-500 shrink-0" />
               <span>Difficulty</span>
             </div>
-            <div className="text-xs sm:text-sm font-semibold text-[#1d2430]">
+            <div className="text-xs sm:text-sm font-semibold text-[#1d2430] leading-snug break-words">
               {book.readingVibe.difficulty}
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-[#e5e1d7] p-3.5 shadow-2xs">
-            <div className="flex items-center gap-1.5 text-xs text-[#6b7787] font-medium mb-1">
-              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+          <div className="bg-white rounded-xl border border-[#e5e1d7] p-3 sm:p-3.5 shadow-2xs flex flex-col justify-between">
+            <div className="flex items-center gap-1.5 text-xs text-[#6b7787] font-medium mb-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
               <span>Tone</span>
             </div>
-            <div className="text-xs sm:text-sm font-semibold text-[#1d2430] truncate">
+            <div className="text-xs sm:text-sm font-semibold text-[#1d2430] leading-snug break-words">
               {book.readingVibe.tone}
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-[#e5e1d7] p-3.5 shadow-2xs">
-            <div className="flex items-center gap-1.5 text-xs text-[#6b7787] font-medium mb-1">
-              <Compass className="w-3.5 h-3.5 text-purple-500" />
+          <div className="bg-white rounded-xl border border-[#e5e1d7] p-3 sm:p-3.5 shadow-2xs flex flex-col justify-between">
+            <div className="flex items-center gap-1.5 text-xs text-[#6b7787] font-medium mb-1.5">
+              <Compass className="w-3.5 h-3.5 text-purple-500 shrink-0" />
               <span>Atmosphere</span>
             </div>
-            <div className="text-xs sm:text-sm font-semibold text-[#1d2430] truncate">
+            <div className="text-xs sm:text-sm font-semibold text-[#1d2430] leading-snug break-words">
               {book.readingVibe.mood}
             </div>
           </div>
